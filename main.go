@@ -29,12 +29,15 @@ func ParallelDownload(ctx context.Context, urls <-chan string, numWorkers int) m
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			for url := range urls {
+			for {
 				select {
 				case <-ctx.Done():
-					fmt.Println("Ctx is done for", url)
-				default:
+					fmt.Println("Ctx is done")
+					return
+				case url, isOpen := <-urls:
+					if !isOpen {
+						return
+					}
 					siteContent, hasError := DownloadSiteContent(ctx, url)
 					if !hasError {
 						mutex.Lock()
@@ -55,7 +58,9 @@ func DownloadSiteContent(ctx context.Context, url string) (siteContent SiteConte
 	fmt.Println("Start Downloading", url)
 
 	scChan := make(chan SiteContent)
-	timeout := time.After(time.Millisecond * 3500)
+	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*3500)
+	defer cancel()
+
 	go func() {
 		initRandomSleep(1500, 5000)
 		scChan <- SiteContent{
@@ -66,7 +71,7 @@ func DownloadSiteContent(ctx context.Context, url string) (siteContent SiteConte
 	}()
 
 	select {
-	case <-timeout:
+	case <-ctx.Done():
 		fmt.Println("Time`s up for", url)
 		return SiteContent{}, true
 	case siteContent := <-scChan:
